@@ -19,6 +19,7 @@
 #include "ruuvi_interface_log.h"
 #include "ruuvi_interface_rtc.h"
 #include "ruuvi_interface_shtcx.h"
+#include "ruuvi_interface_scheduler.h"
 #include "ruuvi_interface_spi.h"
 #include "ruuvi_interface_yield.h"
 #include "ruuvi_task_adc.h"
@@ -462,6 +463,22 @@ uint32_t app_sensor_event_count_get (void)
     return m_event_counter;
 }
 
+static void fifo_task(void * p_data, uint16_t data_len){
+  // here the FIFO buffer should be read
+  // for now, just print a log statement
+  char msg[128];
+  snprintf (msg, sizeof (msg), "%lu: FIFO called\r\n", (uint32_t) ri_rtc_millis());
+  LOG (msg);
+}
+
+static void on_fifo_isr (const ri_gpio_evt_t event)
+{   
+    rd_status_t err_code = RD_SUCCESS;
+    err_code |= ri_scheduler_event_put (NULL, 0u, &fifo_task);
+    RD_ERROR_CHECK (err_code, RD_SUCCESS);
+
+}
+
 rd_status_t app_sensor_acc_thr_set (float * const threshold_g)
 {
     rd_status_t err_code = RD_SUCCESS;
@@ -497,6 +514,47 @@ rd_status_t app_sensor_acc_thr_set (float * const threshold_g)
                                               RI_GPIO_MODE_INPUT_NOPULL,
                                               &on_accelerometer_isr);
         err_code |= provider->level_interrupt_set (true, threshold_g);
+    }
+
+    return err_code;
+}
+
+rd_status_t app_sensor_acc_fifo_set (bool enable)
+{
+    rd_status_t err_code = RD_SUCCESS;
+    const rd_sensor_data_fields_t acceleration =
+    {
+        .datas.acceleration_x_g = 1,
+        .datas.acceleration_y_g = 1,
+        .datas.acceleration_z_g = 1
+    };
+    const rd_sensor_t * const provider = app_sensor_find_provider (acceleration);
+
+    if (RI_GPIO_ID_UNUSED == RB_INT_FIFO_PIN)
+    {
+        err_code |= RD_ERROR_NOT_SUPPORTED;
+    }
+    else if ( (NULL == provider) || (NULL == provider->fifo_enable && NULL == provider->fifo_interrupt_enable))
+    {
+        err_code |= RD_ERROR_NOT_SUPPORTED;
+    }
+    else if (false == enable)
+    {
+        ri_gpio_interrupt_disable (RB_INT_FIFO_PIN);
+        err_code |= provider->fifo_enable (false);
+        err_code |= provider->fifo_interrupt_enable (false);
+    }
+
+    else
+    {   
+        LOG("Enabling FIFO interrupt...\r\n");
+        err_code |= ri_gpio_interrupt_enable (RB_INT_FIFO_PIN,
+                                              RI_GPIO_SLOPE_LOTOHI,
+                                              RI_GPIO_MODE_INPUT_NOPULL,
+                                              &on_fifo_isr);
+        err_code |= provider->fifo_enable (true);
+        err_code |= provider->fifo_interrupt_enable (true);
+        LOG("FIFO interrupt enabled!\r\n");
     }
 
     return err_code;

@@ -423,7 +423,10 @@ rd_sensor_data_fields_t app_sensor_available_data (void)
 }
 
 rd_status_t app_sensor_get (rd_sensor_data_t * const data)
-{
+{   
+    char msg[128];
+    snprintf (msg, sizeof (msg), "%lu: app_sensor_get called\r\n", (uint32_t) ri_rtc_millis());
+    LOG (msg);
     rd_status_t err_code = RD_SUCCESS;
 
     for (size_t ii = 0; ii < SENSOR_COUNT; ii++)

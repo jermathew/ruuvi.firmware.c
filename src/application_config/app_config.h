@@ -463,8 +463,8 @@
 
 /** @brief Logs reserve lot of flash, enable only on debug builds */
 #ifndef RI_LOG_ENABLED
-#   define RI_LOG_ENABLED (0U)
-#   define APP_LOG_LEVEL RI_LOG_LEVEL_NONE
+#   define RI_LOG_ENABLED (1U)
+#   define APP_LOG_LEVEL RI_LOG_LEVEL_INFO
 #endif
 
 /** @}*/

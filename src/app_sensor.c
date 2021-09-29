@@ -24,6 +24,7 @@
 #include "ruuvi_interface_yield.h"
 #include "ruuvi_task_adc.h"
 #include "ruuvi_task_sensor.h"
+#include "ruuvi_interface_scheduler.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -65,7 +66,7 @@ rt_sensor_ctx_t * m_sensors[SENSOR_COUNT]; //!< Sensor APIs.
 static uint64_t vdd_update_time;              //!< timestamp of VDD update.
 static uint32_t
 m_event_counter;              //!< Number of events registered in app_sensor.
-
+static const rd_sensor_t * acceleration_provider; // Pointer to an accelerometer-equipped sensor
 /**
  * @brief Sensor operation, such as read or configure.
  *
@@ -198,6 +199,55 @@ on_accelerometer_isr (const ri_gpio_evt_t event)
         LOG ("Movement \r\n");
         app_sensor_event_increment();
     }
+}
+
+static void fetch_fifo_buffer (float *out_buffer){
+  // number of samples stored in the FIFO buffer
+  size_t num_samples = 32;
+
+  // struct containing data stored in the FIFO buffer
+  rd_sensor_data_t data[32] = { 0 };
+  
+  // number of variables sampled by the accelerometer
+  int sensor_fields_count = __builtin_popcount(acceleration_provider->provides.bitfield);
+  float values[num_samples][sensor_fields_count];
+
+
+  // initialize data struct
+  for (size_t i = 0; i < num_samples; i++)
+  {   
+      data[i].data = values[i];
+      data[i].fields.bitfield = acceleration_provider->provides.bitfield;
+  }
+  
+  // fetch data from the FIFO buffer
+  acceleration_provider->fifo_read(&num_samples, data);
+  
+  // parse only z-axis-related samples
+  const rd_sensor_data_fields_t acceleration_z = {.datas.acceleration_z_g = 1}; 
+
+  for(int i=0; i<num_samples; i++)
+  { 
+    out_buffer[i] = rd_sensor_data_parse(&data[i], acceleration_z);
+  }
+  
+}
+
+
+static void fifo_handler (void * p_data, uint16_t data_len){
+
+  float z_samples[32];
+  fetch_fifo_buffer(z_samples);
+  
+  // TODO: do some computations with z_samples
+}
+
+
+static void on_fifo_isr (const ri_gpio_evt_t event)
+{   
+    LOG ("FIFO interrupt fired \r\n");
+    ri_scheduler_event_put (NULL, 0u, &fifo_handler);
+
 }
 
 static ri_i2c_frequency_t rb_to_ri_i2c_freq (unsigned int rb_freq)
@@ -376,6 +426,15 @@ rd_status_t app_sensor_init (void)
                 m_sensors[ii]->handle = APP_SENSOR_HANDLE_UNUSED;
             }
         }
+
+        const rd_sensor_data_fields_t acceleration =
+        {
+            .datas.acceleration_x_g = 1,
+            .datas.acceleration_y_g = 1,
+            .datas.acceleration_z_g = 1,
+        };
+        
+        acceleration_provider = app_sensor_find_provider (acceleration);
     }
 
     return err_code;
@@ -498,6 +557,40 @@ rd_status_t app_sensor_acc_thr_set (float * const threshold_g)
                                               RI_GPIO_MODE_INPUT_NOPULL,
                                               &on_accelerometer_isr);
         err_code |= provider->level_interrupt_set (true, threshold_g);
+    }
+
+    return err_code;
+}
+
+rd_status_t app_sensor_acc_fifo_set (bool enable)
+{
+    rd_status_t err_code = RD_SUCCESS;
+
+    if (RI_GPIO_ID_UNUSED == RB_INT_FIFO_PIN)
+    {
+        err_code |= RD_ERROR_NOT_SUPPORTED;
+    }
+    else if ( (NULL == acceleration_provider) || (NULL == acceleration_provider->fifo_enable && NULL == acceleration_provider->fifo_interrupt_enable))
+    {
+        err_code |= RD_ERROR_NOT_SUPPORTED;
+    }
+    else if (false == enable)
+    {   
+        LOG ("FIFO interrupt disabled \r\n");
+        ri_gpio_interrupt_disable (RB_INT_FIFO_PIN);
+        err_code |= acceleration_provider->fifo_enable (false);
+        err_code |= acceleration_provider->fifo_interrupt_enable (false);
+    }
+
+    else
+    {   
+        LOG ("FIFO interrupt enabled \r\n");
+        err_code |= ri_gpio_interrupt_enable (RB_INT_FIFO_PIN,
+                                              RI_GPIO_SLOPE_LOTOHI,
+                                              RI_GPIO_MODE_INPUT_NOPULL,
+                                              &on_fifo_isr);
+        err_code |= acceleration_provider->fifo_enable (true);
+        err_code |= acceleration_provider->fifo_interrupt_enable (true);
     }
 
     return err_code;

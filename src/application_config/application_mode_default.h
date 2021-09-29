@@ -27,12 +27,12 @@
 
 /** @brief Communicate sensor data at this interval. 1285 matches Apple guideline. */
 #ifndef APP_BLE_INTERVAL_MS
-#   define APP_BLE_INTERVAL_MS (1285U)
+#   define APP_BLE_INTERVAL_MS (10000U)
 #endif
 
 /** @brief repeat same data N times in advertisement, reduce sensor reads. */
 #ifndef APP_NUM_REPEATS
-#   define APP_NUM_REPEATS 2
+#   define APP_NUM_REPEATS 1
 #endif
 
 /** @brief Refresh sensor data at this interval.*/

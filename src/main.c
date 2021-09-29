@@ -81,7 +81,7 @@ void setup (void)
     err_code |= app_sensor_init();
     err_code |= app_log_init();
     // Allow fail on boards which do not have accelerometer.
-    (void) app_sensor_acc_thr_set (&motion_threshold);
+    (void) app_sensor_acc_thr_set (NULL);
     // Enable FIFO
     (void) app_sensor_acc_fifo_set(true);
     err_code |= app_comms_init (APP_LOCKED_AT_BOOT);
